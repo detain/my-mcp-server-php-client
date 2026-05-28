@@ -11,16 +11,29 @@ use Symfony\Component\Yaml\Yaml;
 /**
  * Parses an OpenAPI 3.x YAML/JSON spec fetched from a URL and extracts tool definitions
  * suitable for registering as MCP tools.
+ *
+ * @phpstan-type ToolDef array{
+ *     name: string,
+ *     description: string,
+ *     httpMethod: string,
+ *     path: string,
+ *     inputSchema: array<string, mixed>,
+ *     pathParams: list<string>,
+ *     queryParams: list<string>,
+ *     hasBody: bool,
+ *     annotations: array<string, mixed>
+ * }
  */
 class OpenApiParser
 {
+    /** @var array<string, mixed> */
     private array $spec = [];
     private string $cacheDir;
     private GuzzleClient $httpClient;
 
     public function __construct(string $cacheDir = '', ?GuzzleClient $httpClient = null)
     {
-        $this->cacheDir = $cacheDir ?: sys_get_temp_dir();
+        $this->cacheDir = $cacheDir ?: sys_get_temp_dir() . '/mcp_client_cache';
         $this->httpClient = $httpClient ?? new GuzzleClient([
             'timeout' => 30,
             'connect_timeout' => 10,
@@ -29,15 +42,16 @@ class OpenApiParser
 
     /**
      * Fetch OpenAPI spec from URL, parse it, and return tool definitions.
-     * Results are cached as a PHP file for opcache efficiency.
+     * Cache is refreshed only when the remote spec's Last-Modified header
+     * is newer than the cached file. Falls back to stale cache on fetch failure.
      *
-     * @return array<int, array{name: string, description: string, httpMethod: string, path: string, inputSchema: array, pathParams: string[], queryParams: string[], hasBody: bool}>
+     * @return list<ToolDef>
      */
     public function parse(string $specUrl): array
     {
         $cacheFile = $this->cacheDir . '/mcp_tools_' . md5($specUrl) . '.php';
 
-        // Check cache - skip HTTP fetch if cache is valid
+        // Check cache - skip HTTP fetch if cache is at least as new as remote spec
         if (file_exists($cacheFile)) {
             $cacheAge = filemtime($cacheFile);
             $specAge = $this->getRemoteSpecAge($specUrl);
@@ -131,6 +145,8 @@ class OpenApiParser
 
     /**
      * Parse the spec content (JSON or YAML).
+     *
+     * @return array<string, mixed>
      */
     private function parseSpecContent(string $content): array
     {
@@ -151,6 +167,8 @@ class OpenApiParser
 
     /**
      * Walk all paths and operations, producing one tool definition per operation.
+     *
+     * @return list<ToolDef>
      */
     private function extractTools(): array
     {
@@ -175,7 +193,12 @@ class OpenApiParser
         return $tools;
     }
 
-    private function buildToolDefinition(string $path, string $httpMethod, array $operation, array $sharedParams): ?array
+    /**
+     * @param array<string, mixed> $operation
+     * @param list<array<string, mixed>> $sharedParams
+     * @return ToolDef
+     */
+    private function buildToolDefinition(string $path, string $httpMethod, array $operation, array $sharedParams): array
     {
         $operationId = $operation['operationId'] ?? $this->generateOperationId($path, $httpMethod);
         $method = strtoupper($httpMethod);
@@ -252,7 +275,6 @@ class OpenApiParser
                     $required[] = $paramName;
                 }
             } else {
-                // Skip header/cookie params
                 continue;
             }
 
@@ -306,7 +328,8 @@ class OpenApiParser
     }
 
     /**
-     * Extract the schema from a requestBody, preferring application/json then multipart/form-data.
+     * @param array<string, mixed> $operation
+     * @return array<string, mixed>|null
      */
     private function extractRequestBodySchema(array $operation): ?array
     {
@@ -329,7 +352,8 @@ class OpenApiParser
     }
 
     /**
-     * Resolve a $ref pointer within the spec. Supports simple #/components/... refs.
+     * @param array<string, mixed> $item
+     * @return array<string, mixed>
      */
     private function resolveRef(array $item): array
     {
@@ -356,7 +380,8 @@ class OpenApiParser
     }
 
     /**
-     * Simplify a JSON Schema definition for MCP tool input.
+     * @param array<string, mixed> $schema
+     * @return array<string, mixed>
      */
     private function simplifySchema(array $schema): array
     {
@@ -404,7 +429,6 @@ class OpenApiParser
             $result['examples'] = $schema['examples'];
         }
 
-        // Handle nested objects
         if (($schema['type'] ?? '') === 'object' && isset($schema['properties'])) {
             $result['properties'] = [];
             foreach ($schema['properties'] as $key => $propSchema) {
@@ -415,7 +439,6 @@ class OpenApiParser
             }
         }
 
-        // Handle arrays
         if (($schema['type'] ?? '') === 'array' && isset($schema['items'])) {
             $result['items'] = $this->simplifySchema($schema['items']);
         }
@@ -423,9 +446,6 @@ class OpenApiParser
         return $result ?: ['type' => 'string'];
     }
 
-    /**
-     * Heuristically decide whether an operation is state-mutating.
-     */
     private function isDestructiveOperation(string $httpMethod, string $path, string $operationId): bool
     {
         $method = strtoupper($httpMethod);
