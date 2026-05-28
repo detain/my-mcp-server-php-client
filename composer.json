@@ -38,6 +38,15 @@
         }
     },
     "scripts": {
+        "post-install-cmd": [
+            "@ensure-dirs"
+        ],
+        "post-update-cmd": [
+            "@ensure-dirs"
+        ],
+        "ensure-dirs": [
+            "@php -r \"@mkdir('var/cache', 0777, true); @mkdir('var/sessions', 0777, true);\""
+        ],
         "lint": "@php tools/lint.php",
         "test": "phpunit",
         "test-coverage": "phpunit --coverage-html=coverage --coverage-text",
