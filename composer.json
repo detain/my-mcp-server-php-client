@@ -22,10 +22,23 @@
     },
     "bin": ["bin/mcp"],
     "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
         "sort-packages": true,
         "allow-plugins": {
             "php-http/discovery": true
         }
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "@ensure-dirs"
+        ],
+        "post-update-cmd": [
+            "@ensure-dirs"
+        ],
+        "ensure-dirs": [
+            "@php -r \"foreach (['cache','sessions'] as $suffix) { if (!is_dir('var/'.$suffix)) mkdir('var/'.$suffix, 0777, true); }\""
+        ]
     },
     "minimum-stability": "stable"
 }
