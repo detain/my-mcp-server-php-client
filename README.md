@@ -252,6 +252,24 @@ You can also pass overrides via CLI args instead of env, e.g.:
 "args": ["/path/to/client-mcp-proxy/bin/mcp", "--api-key=sk_live_xxx", "-v"]
 ```
 
+## MCPB Bundle (one-click install)
+
+Instead of editing `claude_desktop_config.json` by hand, you can build a
+[MCP Bundle (`.mcpb`)](https://github.com/anthropics/mcpb) — a single-file
+installer that Claude Desktop (and other MCPB hosts) can install with one click.
+
+```bash
+mcpb/scripts/build-bundle.sh
+# → mcpb/dist/client-mcp-proxy-<version>.mcpb
+```
+
+The bundle wraps `bin/mcp` as a `binary`-type MCPB server with all Composer
+production dependencies pre-installed. End users only need PHP 8.2+ on their
+`PATH`; everything else ships inside the `.mcpb`.
+
+See [`mcpb/README.md`](mcpb/README.md) for build requirements, the full list
+of user-config fields, and packaging details.
+
 ## Tool Caching
 
 Tool definitions from the OpenAPI spec are cached in `CACHE_DIR` and invalidated

@@ -1,0 +1,124 @@
+{
+  "manifest_version": "0.3",
+  "name": "client-mcp-proxy",
+  "display_name": "MyAdmin MCP Proxy",
+  "version": "1.0.0",
+  "description": "MCP proxy that exposes a remote OpenAPI-described HTTP API (MyAdmin / InterServer) as MCP tools over stdio. Tools are loaded dynamically from the OpenAPI spec at startup.",
+  "long_description": "This bundle packages the `client-mcp-proxy` PHP server as a one-click installable MCP bundle.\n\n## What it does\n\n* Fetches an OpenAPI 3.x spec from a configurable URL (JSON or YAML, auto-detected).\n* Generates an MCP tool for every operation in the spec, with parameter schemas derived from the OpenAPI definitions.\n* Forwards each tool call to the upstream HTTP API, passing through configured auth credentials (`X-API-KEY`, `Authorization: Bearer …`, or `sessionid`).\n* Caches tool definitions on disk with `Last-Modified` revalidation, and falls back to the cached copy if the remote fetch fails.\n* Communicates with the host application over stdio using the MCP 2025 protocol.\n\n## Requirements\n\n* **PHP 8.2 or newer** must be available on the user's `PATH`. Claude Desktop bundles Node.js but **not** PHP, so end users must install PHP separately:\n  * macOS: `brew install php`\n  * Windows: <https://windows.php.net/download/> or `winget install PHP.PHP`\n  * Linux: `sudo apt install php-cli` (or distro equivalent)\n\nThe bundle ships its Composer dependencies pre-installed, so no `composer install` is required on the user's machine.\n\n## Credentials\n\nSet **at least one** of `API Key`, `Bearer Token`, or `Session ID` for the proxy to authenticate against the upstream API. All three are optional individually; the server simply forwards whichever are provided.",
+  "author": {
+    "name": "Joe Huss",
+    "email": "detain@interserver.net",
+    "url": "https://github.com/detain"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/detain/my-mcp-server-php-client"
+  },
+  "homepage": "https://github.com/detain/my-mcp-server-php-client",
+  "documentation": "https://github.com/detain/my-mcp-server-php-client#readme",
+  "support": "https://github.com/detain/my-mcp-server-php-client/issues",
+  "license": "proprietary",
+  "keywords": ["mcp", "mcpb", "proxy", "openapi", "myadmin", "interserver", "php"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/bin/mcp",
+    "mcp_config": {
+      "command": "php",
+      "args": [
+        "${__dirname}/server/bin/mcp",
+        "--stdio"
+      ],
+      "env": {
+        "API_KEY": "${user_config.api_key}",
+        "BEARER_TOKEN": "${user_config.bearer_token}",
+        "SESSION_ID": "${user_config.session_id}",
+        "OPENAPI_SPEC_URL": "${user_config.openapi_spec_url}",
+        "API_BASE_URL": "${user_config.api_base_url}",
+        "SESSION_DIR": "${user_config.session_dir}",
+        "CACHE_DIR": "${user_config.cache_dir}",
+        "CA_CERT_FILE": "${user_config.ca_cert_file}",
+        "SSL_VERIFY": "${user_config.ssl_verify}",
+        "SERVER_NAME": "MyAdmin MCP Proxy",
+        "SERVER_VERSION": "1.0.0"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "php.exe",
+          "args": [
+            "${__dirname}/server/bin/mcp",
+            "--stdio"
+          ]
+        }
+      }
+    }
+  },
+  "tools_generated": true,
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "API Key",
+      "description": "API key for the upstream MyAdmin API. Forwarded as the `X-API-KEY` header. Leave blank to use a bearer token or session id instead.",
+      "required": false,
+      "sensitive": true
+    },
+    "bearer_token": {
+      "type": "string",
+      "title": "Bearer Token",
+      "description": "OAuth / JWT bearer token. Forwarded as `Authorization: Bearer …`. Leave blank if not using bearer auth.",
+      "required": false,
+      "sensitive": true
+    },
+    "session_id": {
+      "type": "string",
+      "title": "Session ID",
+      "description": "Pre-existing upstream session id. Forwarded as the `sessionid` header. Leave blank if not using session auth.",
+      "required": false,
+      "sensitive": true
+    },
+    "openapi_spec_url": {
+      "type": "string",
+      "title": "OpenAPI Spec URL",
+      "description": "URL the proxy fetches the OpenAPI spec from at startup. JSON and YAML are both supported and auto-detected.",
+      "required": false,
+      "default": "https://my.interserver.net/openapi.json"
+    },
+    "api_base_url": {
+      "type": "string",
+      "title": "Upstream API Base URL",
+      "description": "Base URL the proxy forwards tool invocations to.",
+      "required": false,
+      "default": "https://my.interserver.net/apiv2"
+    },
+    "session_dir": {
+      "type": "directory",
+      "title": "Session Directory",
+      "description": "Directory the proxy uses to persist MCP session state between requests.",
+      "required": false,
+      "default": "${HOME}/.mcp/client-mcp-proxy/sessions"
+    },
+    "cache_dir": {
+      "type": "directory",
+      "title": "Cache Directory",
+      "description": "Directory the proxy uses to cache fetched OpenAPI tool definitions.",
+      "required": false,
+      "default": "${HOME}/.mcp/client-mcp-proxy/cache"
+    },
+    "ca_cert_file": {
+      "type": "file",
+      "title": "CA Bundle (PEM)",
+      "description": "Optional path to a PEM-format CA bundle used to verify upstream TLS certificates. Leave blank to use the system trust store.",
+      "required": false
+    },
+    "ssl_verify": {
+      "type": "boolean",
+      "title": "Verify TLS",
+      "description": "Verify TLS peer and host name on outbound API calls. Disable only for testing against self-signed endpoints.",
+      "required": false,
+      "default": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}
