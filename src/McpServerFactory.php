@@ -22,6 +22,9 @@ class McpServerFactory
     /** @var array<string, string>|null Stdio auth credentials (api_key, session_id, bearer_token) */
     private ?array $stdioAuth = null;
 
+    /** @var bool|string Guzzle verify option: true (system CA), false (no verify), or path to CA bundle. */
+    private bool|string $sslVerify = true;
+
     public function __construct(string $apiBaseUrl)
     {
         $this->apiBaseUrl = rtrim($apiBaseUrl, '/');
@@ -36,6 +39,18 @@ class McpServerFactory
     public function setStdioAuth(array $auth): void
     {
         $this->stdioAuth = $auth;
+    }
+
+    /**
+     * Set the SSL verification setting for outbound API calls.
+     * Maps directly to Guzzle's `verify` option, which controls
+     * CURLOPT_SSL_VERIFYPEER / CURLOPT_SSL_VERIFYHOST / CURLOPT_CAINFO.
+     *
+     * @param bool|string $verify true (system CA), false (no verify), or path to a CA bundle file.
+     */
+    public function setSslVerify(bool|string $verify): void
+    {
+        $this->sslVerify = $verify;
     }
 
     /**
@@ -92,8 +107,9 @@ class McpServerFactory
         $queryParams = $toolDef['queryParams'];
         $hasBody = $toolDef['hasBody'];
         $baseUrl = $this->apiBaseUrl;
+        $sslVerify = $this->sslVerify;
 
-        return function (RequestContext $ctx) use ($httpMethod, $pathTemplate, $pathParams, $queryParams, $hasBody, $baseUrl) {
+        return function (RequestContext $ctx) use ($httpMethod, $pathTemplate, $pathParams, $queryParams, $hasBody, $baseUrl, $sslVerify) {
             /** @var \Mcp\Schema\Request\CallToolRequest $request */
             $request = $ctx->getRequest();
             $arguments = $request->arguments ?? [];
@@ -136,6 +152,7 @@ class McpServerFactory
                 'timeout' => 60,
                 'connect_timeout' => 10,
                 'http_errors' => false,
+                'verify' => $sslVerify,
             ]);
 
             $options = ['headers' => $headers];

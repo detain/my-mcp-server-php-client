@@ -30,22 +30,25 @@ if (file_exists($envFile)) {
     }
 }
 
-// Required configuration
-$openapiSpecUrl = $_ENV['OPENAPI_SPEC_URL'] ?? '';
-$apiBaseUrl = $_ENV['API_BASE_URL'] ?? '';
+// Configuration from environment (with sensible defaults)
+$openapiSpecUrl = $_ENV['OPENAPI_SPEC_URL'] ?? 'https://my.interserver.net/openapi.json';
+$apiBaseUrl = $_ENV['API_BASE_URL'] ?? 'https://my.interserver.net/apiv2';
 $sessionDir = $_ENV['SESSION_DIR'] ?? '/tmp/mcp_client_sessions';
 $cacheDir = $_ENV['CACHE_DIR'] ?? '/tmp/mcp_client_cache';
 $serverName = $_ENV['SERVER_NAME'] ?? 'MCP Proxy';
 $serverVersion = $_ENV['SERVER_VERSION'] ?? '1.0.0';
 
-if (empty($openapiSpecUrl) || empty($apiBaseUrl)) {
-    http_response_code(500);
-    header('Content-Type: application/json');
-    echo json_encode([
-        'error' => 'Missing required environment variables: OPENAPI_SPEC_URL and API_BASE_URL must be set',
-    ]);
-    exit(1);
+// SSL / TLS configuration
+$caCertFile = $_ENV['CA_CERT_FILE'] ?? '';
+$sslVerify = filter_var($_ENV['SSL_VERIFY'] ?? 'true', FILTER_VALIDATE_BOOLEAN);
+
+if ($caCertFile !== '' && is_file($caCertFile)) {
+    ini_set('curl.cainfo', $caCertFile);
+    ini_set('openssl.cafile', $caCertFile);
 }
+
+// Combined Guzzle `verify` option: CURLOPT_SSL_VERIFYPEER/VERIFYHOST/CAINFO
+$verifyOption = $sslVerify ? ($caCertFile !== '' ? $caCertFile : true) : false;
 
 // Create required directories
 if (!is_dir($sessionDir)) {
@@ -60,6 +63,7 @@ try {
     $parser = new OpenApiParser($cacheDir, new GuzzleClient([
         'timeout' => 30,
         'connect_timeout' => 10,
+        'verify' => $verifyOption,
     ]));
     $toolDefs = $parser->parse($openapiSpecUrl);
 } catch (\Throwable $e) {
@@ -74,6 +78,7 @@ try {
 // Build the MCP server
 try {
     $factory = new McpServerFactory($apiBaseUrl);
+    $factory->setSslVerify($verifyOption);
     $sessionStore = new \Mcp\Server\Session\FileSessionStore($sessionDir, 3600);
     $server = $factory->build($serverName, $serverVersion, $toolDefs, $sessionStore);
 } catch (\Throwable $e) {
@@ -85,30 +90,49 @@ try {
     exit(1);
 }
 
-// Handle OAuth protected resource metadata endpoint
+// Routing
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
 $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+// Strip query string for path matching
+$requestPath = parse_url($requestUri, PHP_URL_PATH) ?? '/';
+
+// Build scheme + host (used by OAuth metadata URLs)
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https') ? 'https' : 'http';
+$schemeAndHost = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+
 // OAuth 2.1 Protected Resource Metadata endpoint (RFC 9700)
-if ($requestMethod === 'GET' && $requestUri === '/.well-known/oauth-protected-resource') {
+if ($requestMethod === 'GET' && $requestPath === '/.well-known/oauth-protected-resource') {
     header('Content-Type: application/json');
     header('Cache-Control: no-store, max-age=0');
 
-    // Extract authorization server from the spec URL or use a sensible default
-    $authServer = $_ENV['OAUTH_AUTHORIZATION_SERVER'] ?? '';
-    if (empty($authServer)) {
-        // Derive from the API base URL
-        $parsed = parse_url($apiBaseUrl);
-        $authServer = ($parsed['scheme'] ?? 'https') . '://' . ($parsed['host'] ?? '') . '/oauth';
-    }
+    echo json_encode([
+        'resource' => $schemeAndHost,
+        'authorization_servers' => [
+            $schemeAndHost . '/oauth/bshaffer',
+        ],
+        'scopes_supported' => ['admin', 'admin_login', 'read', 'write'],
+        'bearer_methods_supported' => ['header'],
+        'resource_signing_alg_values_supported' => ['RS256'],
+        'resource_documentation' => $schemeAndHost . '/api-docs/',
+    ], JSON_PRETTY_PRINT);
+    exit(0);
+}
+
+// OAuth 2.1 Authorization Server Metadata endpoint (RFC 8414)
+if ($requestMethod === 'GET' && $requestPath === '/.well-known/oauth-authorization-server') {
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store, max-age=0');
 
     echo json_encode([
-        'resource' => 'https://' . ($_SERVER['HTTP_HOST'] ?? 'mcp-proxy'),
-        'authorization_servers' => [$authServer],
-        'scopes_supported' => ['read', 'write', 'admin'],
-        'bearer_methods_supported' => ['header'],
-        'resource_signing_alg_values_supported' => ['RS256', 'ES256'],
-        'resource_documentation' => $openapiSpecUrl,
+        'issuer' => $schemeAndHost . '/oauth/bshaffer',
+        'authorization_endpoint' => $schemeAndHost . '/oauth/bshaffer/authorize.php',
+        'token_endpoint' => $schemeAndHost . '/oauth/bshaffer/token.php',
+        'token_endpoint_auth_methods_supported' => ['client_secret_post', 'client_secret_basic'],
+        'scopes_supported' => ['admin', 'admin_login', 'read', 'write'],
+        'response_types_supported' => ['code'],
+        'grant_types_supported' => ['authorization_code', 'refresh_token'],
     ], JSON_PRETTY_PRINT);
     exit(0);
 }

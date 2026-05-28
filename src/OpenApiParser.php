@@ -47,7 +47,16 @@ class OpenApiParser
             }
         }
 
-        $specContent = $this->fetchSpec($specUrl);
+        try {
+            $specContent = $this->fetchSpec($specUrl);
+        } catch (\RuntimeException $e) {
+            // If fetch fails but cache exists, use stale cache
+            if (file_exists($cacheFile)) {
+                return require $cacheFile;
+            }
+            throw $e;
+        }
+
         $this->spec = $this->parseSpecContent($specContent);
 
         $tools = $this->extractTools();
@@ -59,6 +68,18 @@ class OpenApiParser
         }
 
         return $tools;
+    }
+
+    /**
+     * Clear the cache for a specific spec URL.
+     */
+    public function clearCache(string $specUrl): void
+    {
+        $cacheFile = $this->cacheDir . '/mcp_tools_' . md5($specUrl) . '.php';
+
+        if (file_exists($cacheFile)) {
+            unlink($cacheFile);
+        }
     }
 
     /**
